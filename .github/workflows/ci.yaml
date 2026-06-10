@@ -21,7 +21,7 @@ jobs:
             goarch: amd64
             ext: ""
             prepare: true
-         
+          
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -43,23 +43,23 @@ jobs:
         run: go test ./...
 
       - name: Build
-              shell: bash
-              env:
-                CGO_ENABLED: "1"
-                GOOS: ${{ matrix.goos }}
-                GOARCH: ${{ matrix.goarch }}
-              run: |
-                VERSION="${GITHUB_REF_NAME}"
-                DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                if [ "${{ matrix.goos }}" = "linux" ]; then
-                  go build \
-                    -ldflags="-s -w -extldflags '-static' -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${DATE}" \
-                    -o tdx2db${{ matrix.ext }} ./main.go
-                else
-                  go build \
-                    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${DATE}" \
-                    -o tdx2db${{ matrix.ext }} ./main.go
-                fi
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            go build \
+              -ldflags="-s -w -extldflags '-static' -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${DATE}" \
+              -o tdx2db${{ matrix.ext }} ./main.go
+          else
+            go build \
+              -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${DATE}" \
+              -o tdx2db${{ matrix.ext }} ./main.go
+          fi
 
       - name: Upload snapshot
         uses: actions/upload-artifact@v4
