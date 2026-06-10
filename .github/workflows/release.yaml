@@ -20,8 +20,8 @@ jobs:
             os_title: Linux
             arch_title: x86_64
             ext: ""
-            archive: tar.gz
             prepare: true
+
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -38,29 +38,36 @@ jobs:
         if: matrix.prepare
         run: |
           sudo apt-get update
-          sudo apt-get install -y unrar
+          # 优化：顺便安装 build-essential 和 g++，确保 CGO 静态链接所需的 libc.a/libm.a 完整
+          sudo apt-get install -y unrar build-essential g++
           make prepare
 
       - name: Build
         shell: bash
         env:
-          CGO_ENABLED: "0"
+          CGO_ENABLED: "1" # 关键：必须保持 1 以兼容 DuckDB 驱动
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           VERSION="${GITHUB_REF_NAME}"
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          go build \
-            -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${DATE}" \
-            -o tdx2db${{ matrix.ext }} ./main.go
+          
+          # 核心优化：如果是 Linux 系统，强制注入 -extldflags '-static' 实现静态编译，剥离 GLIBC 高版本依赖
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            go build \
+              -ldflags="-s -w -extldflags '-static' -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${DATE}" \
+              -o tdx2db${{ matrix.ext }} ./main.go
+          else
+            go build \
+              -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${DATE}" \
+              -o tdx2db${{ matrix.ext }} ./main.go
+          fi
 
       - name: Archive (tar.gz)
-        if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
           NAME="tdx2db_${{ matrix.os_title }}_${{ matrix.arch_title }}"
           tar -czf "${NAME}.tar.gz" tdx2db${{ matrix.ext }}
-
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
