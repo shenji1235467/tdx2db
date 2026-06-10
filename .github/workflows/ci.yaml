@@ -56,7 +56,7 @@ jobs:
 
       - name: Build
         env:
-          CGO_ENABLED: "1"
+          CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: go build -ldflags="-s -w" -o tdx2db${{ matrix.ext }} ./main.go
