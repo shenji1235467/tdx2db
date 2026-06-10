@@ -22,28 +22,6 @@ jobs:
             ext: ""
             archive: tar.gz
             prepare: true
-          - os: ubuntu-24.04-arm
-            goos: linux
-            goarch: arm64
-            os_title: Linux
-            arch_title: arm64
-            ext: ""
-            archive: tar.gz
-            prepare: true
-          - os: macos-14
-            goos: darwin
-            goarch: arm64
-            os_title: Darwin
-            arch_title: arm64
-            ext: ""
-            archive: tar.gz
-          - os: windows-latest
-            goos: windows
-            goarch: amd64
-            os_title: Windows
-            arch_title: x86_64
-            ext: ".exe"
-            archive: zip
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -83,12 +61,6 @@ jobs:
           NAME="tdx2db_${{ matrix.os_title }}_${{ matrix.arch_title }}"
           tar -czf "${NAME}.tar.gz" tdx2db${{ matrix.ext }}
 
-      - name: Archive (zip)
-        if: matrix.archive == 'zip'
-        shell: bash
-        run: |
-          NAME="tdx2db_${{ matrix.os_title }}_${{ matrix.arch_title }}"
-          7z a "${NAME}.zip" tdx2db${{ matrix.ext }}
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
