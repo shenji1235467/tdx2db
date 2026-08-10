@@ -110,6 +110,20 @@ func TestMakeDayRecord(t *testing.T) {
 	}
 }
 
+func TestMakeDayRecordEncodesOverflowVolume(t *testing.T) {
+	rec := md1OHLCV{Volume: 8_285_468_730}
+	buf := makeDayRecord(20260320, rec, 1000)
+
+	volRaw := binary.LittleEndian.Uint32(buf[24:28])
+	reserved := binary.LittleEndian.Uint32(buf[28:32])
+	if reserved&0xffffff00 != 0xc3640000 {
+		t.Fatalf("reserved = %#x, want c364 overflow marker", reserved)
+	}
+	if got := parseDayVolume(volRaw, reserved); got != int64(rec.Volume) {
+		t.Errorf("parseDayVolume round-trip = %d, want %d", got, rec.Volume)
+	}
+}
+
 func TestAppendDayRecordDedup(t *testing.T) {
 	tmpDir := t.TempDir()
 	dayFile := filepath.Join(tmpDir, "test.day")
@@ -206,7 +220,7 @@ func TestReadMd1Block(t *testing.T) {
 	binary.LittleEndian.PutUint64(data[20:28], math.Float64bits(105.00))  // high
 	binary.LittleEndian.PutUint64(data[28:36], math.Float64bits(99.00))   // low
 	binary.LittleEndian.PutUint64(data[36:44], math.Float64bits(103.25))  // close
-	binary.LittleEndian.PutUint32(data[56:60], 50000)                     // volume
+	binary.LittleEndian.PutUint64(data[56:64], 8_285_468_730)             // volume
 	binary.LittleEndian.PutUint64(data[72:80], math.Float64bits(5000000)) // amount
 
 	ohlcv, err := readMd1Block(data, 0)
@@ -226,8 +240,8 @@ func TestReadMd1Block(t *testing.T) {
 	if ohlcv.Close != 103.25 {
 		t.Errorf("close = %f, want 103.25", ohlcv.Close)
 	}
-	if ohlcv.Volume != 50000 {
-		t.Errorf("volume = %d, want 50000", ohlcv.Volume)
+	if ohlcv.Volume != 8_285_468_730 {
+		t.Errorf("volume = %d, want 8285468730", ohlcv.Volume)
 	}
 	if ohlcv.Amount != 5000000 {
 		t.Errorf("amount = %f, want 5000000", ohlcv.Amount)

@@ -32,7 +32,7 @@ type md1OHLCV struct {
 	Low    float64 // [28:36] double
 	Close  float64 // [36:44] double
 	Amount float64 // [72:80] double (turnover in yuan)
-	Volume uint32  // [56:60] uint32 (in shares)
+	Volume uint64  // [56:64] uint64 (in shares)
 }
 
 // NativeDayMerge reads all .md1/.cod file pairs from vipdocDir/refmhq/ and
@@ -158,7 +158,7 @@ func parseCodEntries(codFile string) ([]codEntry, error) {
 //	[20:28] float64  high price
 //	[28:36] float64  low price
 //	[36:44] float64  close price
-//	[56:60] uint32   volume (in shares)
+//	[56:64] uint64   volume (in shares)
 //	[72:80] float64  amount (turnover in yuan)
 func readMd1Block(md1Data []byte, seqNum uint16) (md1OHLCV, error) {
 	offset := int(seqNum) * md1BlockSize
@@ -173,7 +173,7 @@ func readMd1Block(md1Data []byte, seqNum uint16) (md1OHLCV, error) {
 		High:   math.Float64frombits(binary.LittleEndian.Uint64(blk[20:28])),
 		Low:    math.Float64frombits(binary.LittleEndian.Uint64(blk[28:36])),
 		Close:  math.Float64frombits(binary.LittleEndian.Uint64(blk[36:44])),
-		Volume: binary.LittleEndian.Uint32(blk[56:60]),
+		Volume: binary.LittleEndian.Uint64(blk[56:64]),
 		Amount: math.Float64frombits(binary.LittleEndian.Uint64(blk[72:80])),
 	}, nil
 }
@@ -201,9 +201,20 @@ func makeDayRecord(date uint32, rec md1OHLCV, scale float64) []byte {
 	binary.LittleEndian.PutUint32(buf[12:16], uint32(math.Round(rec.Low*scale)))
 	binary.LittleEndian.PutUint32(buf[16:20], uint32(math.Round(rec.Close*scale)))
 	binary.LittleEndian.PutUint32(buf[20:24], math.Float32bits(float32(rec.Amount)))
-	binary.LittleEndian.PutUint32(buf[24:28], rec.Volume)
-	binary.LittleEndian.PutUint32(buf[28:32], 0x10000)
+	volRaw, reserved := encodeDayVolume(rec.Volume)
+	binary.LittleEndian.PutUint32(buf[24:28], volRaw)
+	binary.LittleEndian.PutUint32(buf[28:32], reserved)
 	return buf
+}
+
+// encodeDayVolume converts the uint64 volume stored in .md1 into the compact
+// .day representation. Volumes larger than uint32 use TDX's x100 overflow
+// marker: the quotient is stored in volume and the remainder in reserved.
+func encodeDayVolume(volume uint64) (volRaw, reserved uint32) {
+	if volume <= math.MaxUint32 {
+		return uint32(volume), 0x10000
+	}
+	return uint32(volume / 100), 0xc3640000 | uint32(volume%100)
 }
 
 // mergeSingleDay processes one .cod+.md1 pair for a single exchange and date,
