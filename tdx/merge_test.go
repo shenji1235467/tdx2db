@@ -51,7 +51,7 @@ func TestMakeDayRecord(t *testing.T) {
 		Volume: 3555100,
 	}
 
-	buf := makeDayRecord(20260318, rec, 100)
+	buf := makeDayRecord(20260318, rec, 100, false)
 
 	if len(buf) != recordSize {
 		t.Fatalf("expected %d bytes, got %d", recordSize, len(buf))
@@ -112,7 +112,7 @@ func TestMakeDayRecord(t *testing.T) {
 
 func TestMakeDayRecordEncodesOverflowVolume(t *testing.T) {
 	rec := md1OHLCV{Volume: 8_285_468_730}
-	buf := makeDayRecord(20260320, rec, 1000)
+	buf := makeDayRecord(20260320, rec, 1000, false)
 
 	volRaw := binary.LittleEndian.Uint32(buf[24:28])
 	reserved := binary.LittleEndian.Uint32(buf[28:32])
@@ -124,12 +124,25 @@ func TestMakeDayRecordEncodesOverflowVolume(t *testing.T) {
 	}
 }
 
+func TestMakeDayRecordEncodesIndexBreadth(t *testing.T) {
+	rec := md1OHLCV{Volume: 123_456, UpCount: 12, DownCount: 38}
+	buf := makeDayRecord(20260618, rec, 100, true)
+
+	if got := binary.LittleEndian.Uint32(buf[24:28]); got != 123_456 {
+		t.Errorf("volume = %d, want 123456", got)
+	}
+	reserved := binary.LittleEndian.Uint32(buf[28:32])
+	if reserved != 0x0026000c {
+		t.Errorf("reserved = %#x, want 0x0026000c", reserved)
+	}
+}
+
 func TestAppendDayRecordDedup(t *testing.T) {
 	tmpDir := t.TempDir()
 	dayFile := filepath.Join(tmpDir, "test.day")
 
 	rec := md1OHLCV{Open: 10, High: 11, Low: 9, Close: 10.5, Amount: 1000, Volume: 100}
-	buf := makeDayRecord(20260318, rec, 100)
+	buf := makeDayRecord(20260318, rec, 100, false)
 
 	// First write
 	if err := appendDayRecord(dayFile, 20260318, buf); err != nil {
@@ -152,7 +165,7 @@ func TestAppendDayRecordDedup(t *testing.T) {
 	}
 
 	// Older date — should also be skipped
-	oldBuf := makeDayRecord(20260317, rec, 100)
+	oldBuf := makeDayRecord(20260317, rec, 100, false)
 	if err := appendDayRecord(dayFile, 20260317, oldBuf); err != nil {
 		t.Fatalf("old date append: %v", err)
 	}
@@ -163,7 +176,7 @@ func TestAppendDayRecordDedup(t *testing.T) {
 	}
 
 	// Newer date — should be appended
-	newBuf := makeDayRecord(20260319, rec, 100)
+	newBuf := makeDayRecord(20260319, rec, 100, false)
 	if err := appendDayRecord(dayFile, 20260319, newBuf); err != nil {
 		t.Fatalf("new date append: %v", err)
 	}
@@ -222,6 +235,8 @@ func TestReadMd1Block(t *testing.T) {
 	binary.LittleEndian.PutUint64(data[36:44], math.Float64bits(103.25))  // close
 	binary.LittleEndian.PutUint64(data[56:64], 8_285_468_730)             // volume
 	binary.LittleEndian.PutUint64(data[72:80], math.Float64bits(5000000)) // amount
+	binary.LittleEndian.PutUint32(data[152:156], 12)                      // up count
+	binary.LittleEndian.PutUint32(data[232:236], 38)                      // down count
 
 	ohlcv, err := readMd1Block(data, 0)
 	if err != nil {
@@ -245,6 +260,9 @@ func TestReadMd1Block(t *testing.T) {
 	}
 	if ohlcv.Amount != 5000000 {
 		t.Errorf("amount = %f, want 5000000", ohlcv.Amount)
+	}
+	if ohlcv.UpCount != 12 || ohlcv.DownCount != 38 {
+		t.Errorf("breadth = (%d, %d), want (12, 38)", ohlcv.UpCount, ohlcv.DownCount)
 	}
 
 	// Out of range

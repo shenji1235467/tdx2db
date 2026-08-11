@@ -27,12 +27,14 @@ type codEntry struct {
 
 // md1OHLCV holds OHLCV data extracted from one 512-byte block in a .md1 file.
 type md1OHLCV struct {
-	Open   float64 // [12:20] double
-	High   float64 // [20:28] double
-	Low    float64 // [28:36] double
-	Close  float64 // [36:44] double
-	Amount float64 // [72:80] double (turnover in yuan)
-	Volume uint64  // [56:64] uint64 (in shares)
+	Open      float64 // [12:20] double
+	High      float64 // [20:28] double
+	Low       float64 // [28:36] double
+	Close     float64 // [36:44] double
+	Amount    float64 // [72:80] double (turnover in yuan)
+	Volume    uint64  // [56:64] uint64 (in shares)
+	UpCount   uint32  // [152:156] uint32 (index mode only)
+	DownCount uint32  // [232:236] uint32 (index mode only)
 }
 
 // NativeDayMerge reads all .md1/.cod file pairs from vipdocDir/refmhq/ and
@@ -160,6 +162,8 @@ func parseCodEntries(codFile string) ([]codEntry, error) {
 //	[36:44] float64  close price
 //	[56:64] uint64   volume (in shares)
 //	[72:80] float64  amount (turnover in yuan)
+//	[152:156] uint32 up count (index mode only)
+//	[232:236] uint32 down count (index mode only)
 func readMd1Block(md1Data []byte, seqNum uint16) (md1OHLCV, error) {
 	offset := int(seqNum) * md1BlockSize
 	if offset+md1BlockSize > len(md1Data) {
@@ -169,12 +173,14 @@ func readMd1Block(md1Data []byte, seqNum uint16) (md1OHLCV, error) {
 	blk := md1Data[offset : offset+md1BlockSize]
 
 	return md1OHLCV{
-		Open:   math.Float64frombits(binary.LittleEndian.Uint64(blk[12:20])),
-		High:   math.Float64frombits(binary.LittleEndian.Uint64(blk[20:28])),
-		Low:    math.Float64frombits(binary.LittleEndian.Uint64(blk[28:36])),
-		Close:  math.Float64frombits(binary.LittleEndian.Uint64(blk[36:44])),
-		Volume: binary.LittleEndian.Uint64(blk[56:64]),
-		Amount: math.Float64frombits(binary.LittleEndian.Uint64(blk[72:80])),
+		Open:      math.Float64frombits(binary.LittleEndian.Uint64(blk[12:20])),
+		High:      math.Float64frombits(binary.LittleEndian.Uint64(blk[20:28])),
+		Low:       math.Float64frombits(binary.LittleEndian.Uint64(blk[28:36])),
+		Close:     math.Float64frombits(binary.LittleEndian.Uint64(blk[36:44])),
+		Volume:    binary.LittleEndian.Uint64(blk[56:64]),
+		Amount:    math.Float64frombits(binary.LittleEndian.Uint64(blk[72:80])),
+		UpCount:   binary.LittleEndian.Uint32(blk[152:156]),
+		DownCount: binary.LittleEndian.Uint32(blk[232:236]),
 	}, nil
 }
 
@@ -192,7 +198,7 @@ func readMd1Block(md1Data []byte, seqNum uint16) (md1OHLCV, error) {
 //	[28:32] uint32   reserved
 //
 // scale 由 model.PriceScale(symbol) 决定: 股票=100, ETF/LOF/B股=1000
-func makeDayRecord(date uint32, rec md1OHLCV, scale float64) []byte {
+func makeDayRecord(date uint32, rec md1OHLCV, scale float64, indexMode bool) []byte {
 	buf := make([]byte, recordSize)
 
 	binary.LittleEndian.PutUint32(buf[0:4], date)
@@ -202,9 +208,17 @@ func makeDayRecord(date uint32, rec md1OHLCV, scale float64) []byte {
 	binary.LittleEndian.PutUint32(buf[16:20], uint32(math.Round(rec.Close*scale)))
 	binary.LittleEndian.PutUint32(buf[20:24], math.Float32bits(float32(rec.Amount)))
 	volRaw, reserved := encodeDayVolume(rec.Volume)
+	if indexMode {
+		volRaw = uint32(rec.Volume)
+		reserved = encodeDayBreadth(rec.UpCount, rec.DownCount)
+	}
 	binary.LittleEndian.PutUint32(buf[24:28], volRaw)
 	binary.LittleEndian.PutUint32(buf[28:32], reserved)
 	return buf
+}
+
+func encodeDayBreadth(upCount, downCount uint32) uint32 {
+	return upCount&0xffff | (downCount&0xffff)<<16
 }
 
 // encodeDayVolume converts the uint64 volume stored in .md1 into the compact
@@ -254,7 +268,7 @@ func mergeSingleDay(vipdocDir, exchange string, date uint32, codFile, md1File st
 
 		symbol := exchange + ent.StockCode
 		scale := model.PriceScale(symbol)
-		dayRec := makeDayRecord(date, ohlcv, scale)
+		dayRec := makeDayRecord(date, ohlcv, scale, isIndexMode(symbol))
 
 		if err := appendDayRecord(dayFilePath, date, dayRec); err != nil {
 			continue
